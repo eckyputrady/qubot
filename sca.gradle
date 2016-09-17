@@ -1,0 +1,110 @@
+/* Static Code Analysis */ 
+apply plugin: "checkstyle"
+apply plugin: "pmd"
+apply plugin: "de.aaschmid.cpd"
+apply plugin: "jdepend"
+apply plugin: "findbugs"
+
+cpdCheck {
+    ignoreFailures = true
+    exclude '**/generated/**'
+}
+
+pmd {
+    ignoreFailures = true
+}
+
+checkstyle {
+    ignoreFailures = true
+}
+
+checkstyleMain.exclude '**/generated/**'
+
+findbugs {
+    ignoreFailures = true
+}
+
+tasks.withType(FindBugs) {
+    classes = classes.filter {
+        !it.path.contains(new File("/generated/").path)
+    }
+}
+
+jdepend {
+    ignoreFailures = true
+}
+
+configurations {
+  javancss
+  classycle
+}
+
+dependencies {
+  javancss "org.codehaus.javancss:javancss:33.54"
+  classycle fileTree(dir: 'config/libs', include: '*.jar')
+}
+
+task javancss() << {
+  description = "execute JavaNCSS tool on project source code"
+  group = "Code Quality"
+
+  def ignoreFailures = true
+
+  // create output folders
+  def reportDir = file("$project.buildDir/reports/javancss")
+  reportDir.mkdirs()
+
+  ant {
+    taskdef name: "javancss",
+            classname: "javancss.JavancssAntTask",
+            classpath: configurations.javancss.asPath
+
+    javancss srcdir: "src",
+            packageMetrics: "yes",
+            classMetrics: "yes",
+            functionMetrics: "yes",
+            abortOnFail: !ignoreFailures,
+            generateReport: true,
+            outputfile: "$reportDir/javancss.xml",
+            format: "xml"
+  }
+
+  ant.xslt(in: "$reportDir/javancss.xml",
+          style: "config/javancss/javancss2html.xsl",
+          out: "$reportDir/javancss.html",
+          classpath: configurations.javancss.asPath)
+}
+check.dependsOn 'javancss'
+
+task classycleAnalyzer << {
+    def reportDir = file("$project.buildDir/reports/classycle")
+    def configDir = "config/classycle"
+    reportDir.mkdirs()
+
+    ant {
+        taskdef name: 'classycleAnalyzer',
+                classname: 'classycle.ant.ReportTask',
+                classpath: configurations.classycle.asPath
+
+        classycleAnalyzer(reportFile: "$reportDir/classycle.xml") {
+            fileset(dir: 'build/classes', includes: '**/*.class')
+        }
+    }
+
+    ant.xslt(in: "$reportDir/classycle.xml",
+          style: "$configDir/reportXMLtoHTML.xsl",
+          out: "$reportDir/classycle.html",
+          classpath: configurations.classycle.asPath)
+
+    copy {
+        from "$configDir"
+        into reportDir
+    }
+}
+check.dependsOn 'classycleAnalyzer'
+
+if (tasks.findByPath('wrapper') == null) {
+    task wrapper(type: Wrapper) {
+        gradleVersion = '2.4'
+    }
+}
